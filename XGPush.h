@@ -10,12 +10,11 @@
 #import <Foundation/Foundation.h>
 #import <UIKit/UIKit.h>
 
+@class CLLocation;
 
-/**
- 信鸽SDK的版本信息
- */
-#define XG_SDK_VERSION @"3.0.0-beta"
-
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_10_0
+#import <UserNotifications/UserNotifications.h>
+#endif
 
 /**
  @brief 点击行为对象的属性配置
@@ -236,7 +235,7 @@ typedef NS_ENUM(NSUInteger, XGPushTokenBindType) {
  @brief 将接收到的设备token注册给token管理对象
 
  @param deviceToken 设备的token，这个参数来来源于Application delegate 的didRegisterForRemoteNotificationsWithDeviceToken:方法中
- @note 此方法是必须在上述回调中调用，否则将导致信鸽服务无法推送消息到指定的设备
+ @note 此方法是必须在上述回调中调用，否则将导致信鸽服务无法推送消息到指定的设备, 3.0中此方法可以不需要手动在didRegisterForRemoteNotificationsWithDeviceToken调用，SDK内部处理
  */
 - (void)registerDeviceToken:(nonnull NSData *)deviceToken;
 
@@ -285,6 +284,28 @@ typedef NS_ENUM(NSUInteger, XGPushTokenBindType) {
 
 @optional
 
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_10_0
+/**
+ 处理iOS 10 UNUserNotification.framework的对应的方法
+
+ @param center [UNUserNotificationCenter currentNotificationCenter]
+ @param notification 通知对象
+ @param completionHandler 回调对象，必须调用
+ */
+- (void)xgPushUserNotificationCenter:(nonnull UNUserNotificationCenter *)center willPresentNotification:(nullable UNNotification *)notification withCompletionHandler:(nonnull void (^)(UNNotificationPresentationOptions options))completionHandler __IOS_AVAILABLE(10.0);
+
+
+/**
+ 处理iOS 10 UNUserNotification.framework的对应的方法
+
+ @param center [UNUserNotificationCenter currentNotificationCenter]
+ @param response 用户对通知消息的响应对象
+ @param completionHandler 回调对象，必须调用
+ */
+- (void)xgPushUserNotificationCenter:(nonnull UNUserNotificationCenter *)center didReceiveNotificationResponse:(nullable UNNotificationResponse *)response withCompletionHandler:(nonnull void (^)(void))completionHandler __IOS_AVAILABLE(10.0);
+
+#endif
+
 /**
  @brief 监控信鸽推送服务地启动情况
 
@@ -310,8 +331,16 @@ typedef NS_ENUM(NSUInteger, XGPushTokenBindType) {
  */
 - (void)xgPushDidReportNotification:(BOOL)isSuccess error:(nullable NSError *)error;
 
-@end
 
+/**
+ @brief 监控设置信鸽服务器下发角标的情况
+
+ @param isSuccess isSuccess 上报是否成功
+ @param error 设置失败的信息
+ */
+- (void)xgPushDidSetBadge:(BOOL)isSuccess error:(nullable NSError *)error;
+
+@end
 
 /**
  @brief 管理信鸽推送服务的对象，负责注册推送权限、消息的管理、调试模式的开关设置等
@@ -319,7 +348,6 @@ typedef NS_ENUM(NSUInteger, XGPushTokenBindType) {
 @interface XGPush : NSObject
 
 #pragma mark - 初始化相关
-
 
 /**
  @brief 获取信鸽推送管理的单例对象
@@ -331,7 +359,7 @@ typedef NS_ENUM(NSUInteger, XGPushTokenBindType) {
 /**
  @brief 关于信鸽推送SDK接口协议的对象
  */
-@property (weak, nonatomic, nullable) id<XGPushDelegate> delegate;
+@property (weak, nonatomic, nullable, readonly) id<XGPushDelegate> delegate;
 
 
 /**
@@ -357,16 +385,17 @@ typedef NS_ENUM(NSUInteger, XGPushTokenBindType) {
 
 /**
  @brief 通过使用在信鸽官网注册的应用的信息，启动信鸽推送服务
- 
+
  @param appID 通过前台申请的应用ID
  @param appKey 通过前台申请的appKey
+ @param delegate 回调对象
  @note 接口所需参数必须要正确填写，反之信鸽服务将不能正确为应用推送消息
  */
-- (void)startXGWithAppID:(uint32_t)appID appKey:(nonnull NSString *)appKey;
+- (void)startXGWithAppID:(uint32_t)appID appKey:(nonnull NSString *)appKey delegate:(nullable id<XGPushDelegate>)delegate;
 
 /**
  @brief 停止信鸽推送服务
- @note 调用此方法将导致当前设备不再接受信鸽服务推送的消息.如果再次需要接收新歌服务的消息推送，则必须需要再次调用startXG:withAppKey:方法重启信鸽推送服务
+ @note 调用此方法将导致当前设备不再接受信鸽服务推送的消息.如果再次需要接收信鸽服务的消息推送，则必须需要再次调用startXG:withAppKey:delegate:方法重启信鸽推送服务
  */
 - (void)stopXGNotification;
 
@@ -379,11 +408,45 @@ typedef NS_ENUM(NSUInteger, XGPushTokenBindType) {
 - (void)reportXGNotificationInfo:(nonnull NSDictionary *)info;
 
 /**
+ @brief 上报地理位置信息
+
+ @param latitude 纬度
+ @param longitude 经度
+ */
+- (void)reportLocationWithLatitude:(double)latitude longitude:(double)longitude;
+
+/**
+ @brief 上报当前App角标数到信鸽服务器
+
+ @param badgeNumber 应用的角标数
+ @note (后台维护中)此接口是为了实现角标+1的功能，服务器会在这个数值基础上进行角标数新增的操作，调用成功之后，会覆盖之前值
+ */
+- (void)setBadge:(NSInteger)badgeNumber;
+
+
+/**
+ @brief 上报推送消息的用户行为
+
+ @param identifier 用户行为标识
+ @note 此接口即统计推送消息中开发者预先设置或者是系统预置的行为标识，可以了解到用户是如何处理推送消息的，又统计消息的点击次数
+ */
+#if __IPHONE_OS_VERSION_MAX_ALLOWED >= __IPHONE_10_0
+- (void)reportXGNotificationResponse:(nullable UNNotificationResponse *)response;
+#endif
+
+/**
  @brief 查询设备通知权限是否被用户允许
 
  @param handler 查询结果的返回方法
  @note iOS 10 or later 回调是异步地执行
  */
 - (void)deviceNotificationIsAllowed:(nonnull void (^)(BOOL isAllowed))handler;
+
+/**
+ 查看SDK的版本
+
+ @return sdk版本号
+ */
+- (nonnull NSString *)sdkVersion;
 
 @end
